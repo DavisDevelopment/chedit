@@ -1,0 +1,44 @@
+
+-main CHEdit
+-lib format
+-lib hscript
+-lib pm
+
+--each
+
+-lib hxnodejs
+-D nod
+-D release
+-js build/js/chedit.js
+
+--next
+
+-D release
+-neko build/neko/chedit.n
+
+--next
+
+-D release
+-cpp build/cpp/
+
+#--next
+
+#-D release
+#-D xcompile
+#-cpp build/cppwin/
+
+--next
+
+-D release
+-java build/java/
+
+#-D release
+#-hl build/hl/chedit.hl
+
+#--next
+
+#-D release
+#-D lua-vanilla
+#-D lua-jit
+#-lua build/lua/chedit.lua
+
