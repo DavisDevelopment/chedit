@@ -3,6 +3,7 @@
 -lib format
 -lib hscript
 -lib pm
+#-d-debugebug
 
 --each
 

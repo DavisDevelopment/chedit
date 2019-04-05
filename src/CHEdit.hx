@@ -14,6 +14,7 @@ import ch.BigNumber;
 import ch.Decimal;
 import ch.SaveFile;
 import ch.Save;
+import ch.Save.Val;
 import ch.Dat;
 
 import pm.Object;
@@ -68,7 +69,9 @@ class CHEdit {
         var ops = ['add', 'subtract', 'multiply', 'divide'];
         var opers = new Map();
         inline function oper(name:String, fn:Save->String->Dynamic->Void) opers[name] = fn;
-        inline function nmod(save:Save, key:String, fn:BigNumber->Void) save.mod(key, (val:Val) -> val.matchFor(Num(n) ? {fn(n);val;} : throw 'NaN'));
+        inline function nmod(save:Save, key:String, fn:BigNumber->Void) {
+            save.mod(key, (val:Attr) -> val.set(val.get().matchFor(Num(n) ? {fn(n);val.get();} : val.get())));
+        }
 
         inline function numop(name:String, fn:BigNumber->Dynamic->Void) {
             oper(name, function(save:Save, key:String, value:Dynamic) {
@@ -81,23 +84,27 @@ class CHEdit {
         numop('multiply', (a:BigNumber, b:Dynamic) -> a.timesEquals(new BigNumber( b )));
         numop('divide', (a:BigNumber, b:Dynamic) -> a.fromString(a.divide(new BigNumber(b)).toString()));
 
-        for (op in ops) {
+        oper('set', function(save:Save, name:String, value:Dynamic) {
+            save.set(name, Save._val( value ));
+        });
+
+        for (op in opers.keys()) {
             if (options.exists( op )) {
                 var pair = Std.string(options.get( op )).split(':').map(x -> x.trim()).map(x -> x.split(','));
                 switch ( pair ) {
                     case [keys, values]:
-                        var pairs = Arrays.zip(keys, values, function(key, value) {
+                        Arrays
+                        .zip(keys, values, function(key, value) {
                             return new Pair(key, parseNum(value));
-                        });
-                        //trace( pairs );
-
-                        for (p in pairs) switch p {
+                        })
+                        .map(pair -> switch pair {
                             case {left:key, right:value}:
-                                operations.push(opers[op].bind(_, key, value));
+                                opers[op].bind(_, key, value);
 
                             default:
                                 throw 'Wtf';
-                        }
+                        })
+                        .forEach(fn -> operations.push( fn ));
 
                     default:
                         throw 'Wtf';
@@ -125,9 +132,13 @@ class CHEdit {
 
         var fn = inline operations.iterator().reduce(function(res:ch.Save->Void, f:ch.Save->Void):ch.Save->Void {
             return inline res.join( f );
-        }, d -> d.noop());
+        }, function(d) {
+            //
+        });
         
         fn( save );
+        //save.set('heroCollection.heroes.16.level', Save._val( 16500 ));
+        //trace(save.get('heroCollection.heroes.16.level'));
 
         var betty = SaveFile.encode(save.toDat());
         output.writeString( betty );

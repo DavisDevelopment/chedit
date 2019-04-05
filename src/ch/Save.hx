@@ -20,6 +20,8 @@ import pm.Arch;
 
 using pm.Options;
 using pm.Functions;
+using pm.Iterators;
+using pm.Strings;
 
 class Save {
     private var src(default, null): Dat;
@@ -52,6 +54,15 @@ class Save {
     }
 
     public function get(key: String):Null<Val> {
+        if (key.has('.')) {
+            return dotGet( key );
+        }
+        else {
+            return _get( key );
+        }
+    }
+
+    function _get(key: String):Null<Val> {
         return switch (prop( key )) {
             case None|Some(null): null;
             case Some(a): a.get();
@@ -59,12 +70,76 @@ class Save {
     }
 
     public function set(key:String, val:Val) {
+        if (key.has('.'))
+            dotSet(key, val);
+        else
+            _set(key, val);
+    }
+
+    function _set(key:String, val:Val) {
         switch (prop( key )) {
             case Some(r):
                 r.assign( val );
 
             case None:
                 data[key] = Ref.to( val );
+        }
+    }
+
+    public function dotGet(key: String) {
+        var path = key.split('.');
+        return _dotGet(path, _get(path.shift()));
+    }
+
+    public function dotSet(key:String, value:Val) {
+        var path = key.split('.');
+        _dotSet(path, _get(path.shift()), value);
+    }
+
+    static function _dotSet(path:Array<String>, container:Null<Val>, value:Val) {
+        if (path.length == 1) {
+            switch ( container ) {
+                case null:
+                    throw 'Error';
+
+                case Val.List(array) if (path[0].isNumeric()):
+                    array[Std.parseInt(path[0])] = value;
+
+                case Val.Dict(map):
+                    map[path[0]] = value;
+
+                default:
+                    throw 'Error';
+            }
+        }
+        else {
+            var name = path.shift();
+            switch (container) {
+                case Val.List(array) if (name.isNumeric()):
+                    _dotSet(path, array[Std.parseInt(name)], value);
+
+                case Val.Dict(map):
+                    _dotSet(path, map[name], value);
+
+                default:
+                    throw 'Wut';
+            }
+        }
+    }
+
+    static function _dotGet(path:Array<String>, current:Null<Val>) {
+        var name = path.shift();
+        if (name.empty())
+            return current;
+        switch current {
+            case Val.List(array) if (name.isNumeric()):
+                return _dotGet(path, array[Std.parseInt(name)]);
+
+            case Val.Dict(map):
+                return _dotGet(path, map[name]);
+
+            default:
+                throw 'Wut';
         }
     }
 
@@ -94,7 +169,8 @@ class Save {
 
         if (Arch.isString( v )) {
             try {
-                var n = new BigNumber( v );
+                var s:String = cast(v, String);
+                var n:BigNumber = new BigNumber(~/[\d]+[.]?[\d]*e[\d]+/gi.match( s ) ? s : '${s}e0');
                 if (n.isNotANumber())
                     throw 'NaN';
                 return Val.Num( n );
@@ -104,6 +180,14 @@ class Save {
             }
         }
 
+        if (Arch.isArray( v )) {
+            return Val.List(cast(v, Array<Dynamic>).map(x -> _val( x )));
+        }
+
+        if (Arch.isObject( v )) {
+            return Val.Dict(ValDict.fromAnon( v ));
+        }
+
         if (Arch.isNull( v ))
             return Val.Nil;
 
@@ -111,13 +195,7 @@ class Save {
     }
 
     public static function _dyn(v: Val):Dynamic {
-        return switch ( v ) {
-            case Val.Nil: null;
-            case Val.Bool(b): b;
-            case Val.Num(n): try v.getValue() catch (e: Dynamic) n.toString();
-            case Val.Txt(s): s;
-            case Val.Other(x): x;
-        }
+        return v.getValue();
     }
 
     public function toDat():Dat {
@@ -145,6 +223,12 @@ class Save {
                 case Bool(b):
                     res += Json.stringify( b );
 
+                case List(a):
+                    res += '[' + a.map(x -> '$x').join(', ') + ']';
+
+                case Dict(d):
+                    res += '$d';
+
                 case Other(x):
                     res += Type.typeof( x );
             }
@@ -161,8 +245,43 @@ enum Val {
     Bool(b: Bool);
     Num(d: BigNumber);
     Txt(s: String);
-
+    List(l: Array<Val>);
+    Dict(d: ValDict);
     Other(o: Dynamic);
+}
+
+@:forward
+abstract ValDict (Map<String, Val>) from Map<String, Val> to Map<String, Val> {
+    public inline function new() {
+        this = new Map();
+    }
+
+    @:arrayAccess
+    public inline function get(key: String):Val {
+        return switch this.get( key ) {
+            case null: Val.Nil;
+            case val: val;
+        }
+    }
+
+    @:arrayAccess
+    public inline function set(key:String, val:Val) {
+        return this.set(key, val);
+    }
+
+    @:from
+    public static inline function fromMap(m: Map<String, Dynamic>):ValDict {
+        return [for (key=>value in m) key=>Save._val(value)];
+    }
+
+    @:from
+    public static inline function fromAnon(d: Dynamic):ValDict {
+        var res = new ValDict();
+        for (key in Reflect.fields( d )) {
+            res[key] = Save._val(Reflect.field(d, key));
+        }
+        return res;
+    }
 }
 
 abstract Attr (Ref<Val>) from Ref<Val> to Ref<Val> {
@@ -233,6 +352,11 @@ class Vals {
             case Nil: null;
             case Bool(b): b;
             case Txt(s): s;
+            case List(a): a.map(getValue);
+            case Dict(d): d.keyValueIterator().reduce(function(o:Dynamic, pair:{key:String, value:Val}) {
+                Reflect.setField(o, pair.key, getValue(pair.value));
+                return o;
+            }, {});
             case Other(x): x;
             case Num((_:BigNumber)=>num):
                 if (num.lteN(2147483647))

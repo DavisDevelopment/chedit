@@ -3,7 +3,7 @@ default: compile run-js run-cpp
 
 IN=~/Desktop/heroes/clickerHeroSave-v1.txt
 OUT=~/Desktop/heroes/clickerHeroSaveEdited.txt
-MODS=--add rubies:20 --multiply heroSouls:2
+MODS=--add rubies:20 --multiply heroSouls:2 --set heroCollection.heroes.16.level:16500
 
 compile:
 	haxe build.hxml
